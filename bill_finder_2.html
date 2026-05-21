@@ -151,7 +151,7 @@
     // Upload and read Excel file
     async function autoLoadExcel() {
       try {
-        const response = await fetch("Factory_Khata_February.xlsx"); // adjust if in subfolder
+        const response = await fetch("Factory_Khata_April.xlsx"); // adjust if in subfolder
         if (!response.ok) throw new Error("File not found (place data.xlsx next to index.html)");
         
         const arrayBuffer = await response.arrayBuffer();
