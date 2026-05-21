@@ -148,7 +148,7 @@
     // Auto-load Excel file from directory
     async function autoLoadExcel() {
       try {
-        const response = await fetch("Factory_Khata_February.xlsx");
+        const response = await fetch("Factory_Khata_April.xlsx");
         if (!response.ok) throw new Error("File not found - make sure Factory_Khata_August.xlsx is in the same directory");
         
         const arrayBuffer = await response.arrayBuffer();
