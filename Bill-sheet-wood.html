@@ -152,7 +152,7 @@
     // Try to auto-load Excel file on page load, but also provide file input fallback
     async function autoLoadExcel() {
       try {
-        const response = await fetch("Factory_Khata_February.xlsx");
+        const response = await fetch("Factory_Khata_April.xlsx");
         if (!response.ok) throw new Error("File not found");
         
         const arrayBuffer = await response.arrayBuffer();
