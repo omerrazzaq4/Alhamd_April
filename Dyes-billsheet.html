@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Al-Hamd Dyeing - Dyes</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: darkblue; }
+    button { margin: 5px; padding: 8px 12px; border-radius: 5px; border: 1px solid #ccc; cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    button.print-btn { background: #4CAF50; color: white; }
+    button.print-btn:hover { background: #45a049; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; }
+    .totals { font-weight: bold; background: #e0f7fa; }
+    .selection-area { 
+      margin: 15px 0; 
+      padding: 15px; 
+      border: 1px solid #ddd; 
+      border-radius: 5px; 
+      background: #f9f9f9;
+    }
+    .order-selection { margin-top: 10px; }
+    .order-checkbox { margin: 5px 10px 5px 0; }
+    input[type="text"] { 
+      padding: 5px; 
+      margin: 5px; 
+      border: 1px solid #ccc; 
+      border-radius: 3px; 
+      width: 300px;
+    }
+    .sheet-selector {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: #f5f5f5;
+    }
+    .error-message {
+      color: red;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    .success-message {
+      color: green;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    @media print {
+      h1, h2, h3, button, .selection-area, #selectionArea, #printBtn, .sheet-selector, #messages { display: none !important; }
+      body { margin: 0; font-size: 12px; }
+      
+      @page {
+        margin: 0.5in;
+        size: A4;
+      }
+      
+      .print-party-name { 
+        font-size: 24px; 
+        font-weight: bold; 
+        text-align: center; 
+        margin: 20px 0; 
+        color: #333;
+        border-bottom: 2px solid #333;
+        padding-bottom: 10px;
+        display: block !important;
+      }
+      .print-company-header {
+        font-size: 28px;
+        font-weight: bold;
+        text-align: center;
+        margin: 10px 0 20px 0;
+        color: #000;
+        display: block !important;
+      }
+      table { font-size: 11px; }
+      th, td { padding: 6px; }
+      * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Find Dye Orders by Party</h1>
+
+  <!-- Auto-loading Excel from directory -->
+
+  <!-- Sheet Selector (hidden initially) -->
+  <div id="sheetSelector" class="sheet-selector" style="display: none;">
+    <h4>Select Sheet:</h4>
+    <select id="sheetDropdown" onchange="selectSheet()">
+      <option value="">-- Choose a sheet --</option>
+    </select>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages"></div>
+
+  <!-- Party Buttons -->
+  <div id="partySection" style="display: none;">
+    <h3>Parties:</h3>
+    <div id="partyButtons"></div>
+  </div>
+
+  <!-- Order Selection Area -->
+  <div id="selectionArea" class="selection-area" style="display: none;">
+    <h3>Select Orders to Include:</h3>
+    <label>
+      <input type="radio" name="orderSelection" value="all" checked onchange="toggleOrderSelection()"> 
+      Include All Orders
+    </label><br>
+    <label>
+      <input type="radio" name="orderSelection" value="specific" onchange="toggleOrderSelection()"> 
+      Select Specific Orders
+    </label>
+    
+    <div id="specificOrdersArea" style="display: none; margin-top: 10px;">
+      <p><em>Select from available orders:</em></p>
+      <div id="orderCheckboxes" class="order-selection"></div>
+    </div>
+    
+    <button onclick="applySelection()" style="margin-top: 10px;">Apply Selection</button>
+  </div>
+
+  <!-- Print Button -->
+  <button id="printBtn" class="print-btn" onclick="printResults()" style="display: none;">Print Results</button>
+
+  <!-- Results -->
+  <h2>Results:</h2>
+  <div id="results"></div>
+
+  <script>
+    let workbookData = null;
+    let dyeOrdersData = [];
+    let currentPartyResults = [];
+    let currentParty = "";
+
+    // Show messages
+    function showMessage(text, type = 'info') {
+      const messagesDiv = document.getElementById('messages');
+      const className = type === 'error' ? 'error-message' : 'success-message';
+      messagesDiv.innerHTML = `<div class="${className}">${text}</div>`;
+    }
+
+    // Auto-load Excel file from directory
+    async function autoLoadExcel() {
+      try {
+        const response = await fetch("Factory_Khata_February.xlsx");
+        if (!response.ok) throw new Error("File not found - make sure Factory_Khata_August.xlsx is in the same directory");
+        
+        const arrayBuffer = await response.arrayBuffer();
+        workbookData = XLSX.read(arrayBuffer, { type: "array" });
+
+        const sheetNames = workbookData.SheetNames;
+        if (sheetNames.length === 0) {
+          showMessage("No sheets found in the Excel file.", "error");
+          return;
+        }
+
+        if (sheetNames.length === 1) {
+          processSheet(sheetNames[0]);
+        } else {
+          populateSheetSelector(sheetNames);
+        }
+
+      } catch (err) {
+        showMessage("Could not load Factory_Khata_August.xlsx from directory: " + err.message, "error");
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", autoLoadExcel);
+
+    // Populate sheet selector dropdown
+    function populateSheetSelector(sheetNames) {
+      const dropdown = document.getElementById('sheetDropdown');
+      dropdown.innerHTML = '<option value="">-- Choose a sheet --</option>';
+      
+      sheetNames.forEach(name => {
+        dropdown.innerHTML += `<option value="${name}">${name}</option>`;
+      });
+
+      document.getElementById('sheetSelector').style.display = 'block';
+      showMessage("Multiple sheets found. Please select a sheet to continue.");
+    }
+
+    // Select and process a sheet
+    function selectSheet() {
+      const selectedSheet = document.getElementById('sheetDropdown').value;
+      if (selectedSheet) {
+        processSheet(selectedSheet);
+      }
+    }
+
+    // Process the selected sheet
+    function processSheet(sheetName) {
+      try {
+        const sheet = workbookData.Sheets[sheetName];
+        if (!sheet) {
+          showMessage(`Sheet "${sheetName}" not found.`, 'error');
+          return;
+        }
+
+        // Convert sheet to JSON
+        const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+        if (rawData.length === 0) {
+          showMessage("The selected sheet appears to be empty.", 'error');
+          return;
+        }
+
+        // Clean the data - remove pivot table and empty columns
+        dyeOrdersData = cleanTableData(rawData);
+
+        if (dyeOrdersData.length === 0) {
+          showMessage("No valid table data found after cleaning.", 'error');
+          return;
+        }
+
+        // Find the Party Name column (try different variations)
+        const possiblePartyColumns = [
+          "Party", "party", "PARTY", "Party Name", "PartyName", "party_name",
+          "Customer", "customer", "CUSTOMER", "Customer Name", "CustomerName", "customer_name",
+          "Client", "client", "CLIENT", "Client Name", "ClientName", "client_name",
+          "Name", "name", "NAME"
+        ];
+
+        let partyColumn = null;
+        const availableColumns = Object.keys(dyeOrdersData[0] || {});
+
+        // First, try exact match with trimmed column names
+        for (let col of possiblePartyColumns) {
+          const foundCol = availableColumns.find(availableCol => availableCol.trim() === col);
+          if (foundCol) {
+            partyColumn = foundCol;
+            break;
+          }
+        }
+
+        // If no exact match, try case-insensitive match with trimmed names
+        if (!partyColumn) {
+          for (let col of possiblePartyColumns) {
+            const foundCol = availableColumns.find(availableCol => 
+              availableCol.trim().toLowerCase() === col.toLowerCase()
+            );
+            if (foundCol) {
+              partyColumn = foundCol;
+              break;
+            }
+          }
+        }
+
+        if (!partyColumn) {
+          showMessage(`Could not find a Party column. Available columns: ${availableColumns.join(', ')}`, 'error');
+          return;
+        }
+
+        // Create unique party buttons from the found column
+        const parties = [...new Set(dyeOrdersData
+          .map(row => row[partyColumn])
+          .filter(p => p && p.toString().trim() !== "")
+        )].sort();
+
+        if (parties.length === 0) {
+          showMessage(`No party names found in column "${partyColumn}".`, 'error');
+          return;
+        }
+
+        let buttonsHtml = "";
+        parties.forEach(p => {
+          const partyName = p.toString(); // Convert to string first
+          buttonsHtml += `<button onclick="searchOrders('${partyName.replace(/'/g, "\\'")}')">${partyName}</button>`;
+        });
+        document.getElementById("partyButtons").innerHTML = buttonsHtml;
+        document.getElementById("partySection").style.display = 'block';
+        document.getElementById('sheetSelector').style.display = 'none';
+
+        showMessage(`Successfully loaded ${dyeOrdersData.length} records with ${parties.length} unique parties from column "${partyColumn}".`);
+
+      } catch (error) {
+        showMessage("Error processing sheet: " + error.message, 'error');
+      }
+    }
+
+    // Clean table data - remove empty columns and pivot table artifacts
+    function cleanTableData(rawData) {
+      if (rawData.length === 0) return rawData;
+
+      // Get all column names
+      const allColumns = Object.keys(rawData[0]);
+      
+      // Filter out unwanted columns
+      const validColumns = allColumns.filter(col => {
+        const colName = col.toString().toLowerCase();
+        
+        // Remove empty columns (Excel artifacts)
+        if (colName.includes('__empty') || colName.includes('empty')) {
+          return false;
+        }
+        
+        // Remove columns that are just whitespace or numbers
+        if (colName.trim() === '' || /^\d+$/.test(colName)) {
+          return false;
+        }
+        
+        // Remove columns that appear to be pivot table artifacts
+        if (colName.includes('sum of') || colName.includes('count of') || 
+            colName.includes('average of') || colName.includes('grand total') ||
+            colName.includes('total of') || colName.includes('subtotal')) {
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.log("Original columns:", allColumns);
+      console.log("Filtered columns:", validColumns);
+
+      // Create cleaned data with only valid columns
+      const cleanedData = rawData.map(row => {
+        const cleanedRow = {};
+        validColumns.forEach(col => {
+          cleanedRow[col] = row[col];
+        });
+        return cleanedRow;
+      }).filter(row => {
+        // Remove rows that are completely empty
+        const values = Object.values(row);
+        const hasRealData = values.some(val => 
+          val !== "" && val !== null && val !== undefined && 
+          (!isNaN(val) && val !== 0) || (typeof val === 'string' && val.trim() !== "")
+        );
+        return hasRealData;
+      });
+
+      return cleanedData;
+    }
+
+    // Search orders by party
+    function searchOrders(partyName) {
+      currentParty = partyName;
+      
+      // Find which column contains party names
+      const possiblePartyColumns = [
+        "Party", "party", "PARTY", "Party Name", "PartyName", "party_name",
+        "Customer", "customer", "CUSTOMER", "Customer Name", "CustomerName", "customer_name",
+        "Client", "client", "CLIENT", "Client Name", "ClientName", "client_name",
+        "Name", "name", "NAME"
+      ];
+
+      let partyColumn = null;
+      const availableColumns = Object.keys(dyeOrdersData[0] || {});
+
+      // First, try exact match with trimmed column names
+      for (let col of possiblePartyColumns) {
+        const foundCol = availableColumns.find(availableCol => availableCol.trim() === col);
+        if (foundCol) {
+          partyColumn = foundCol;
+          break;
+        }
+      }
+
+      // If no exact match, try case-insensitive match with trimmed names
+      if (!partyColumn) {
+        for (let col of possiblePartyColumns) {
+          const foundCol = availableColumns.find(availableCol => 
+            availableCol.trim().toLowerCase() === col.toLowerCase()
+          );
+          if (foundCol) {
+            partyColumn = foundCol;
+            break;
+          }
+        }
+      }
+
+      const results = dyeOrdersData.filter(row =>
+        row[partyColumn] && row[partyColumn].toString().toLowerCase() === partyName.toLowerCase()
+      );
+
+      if (results.length === 0) {
+        document.getElementById('results').innerHTML = "No dye orders found for this party.";
+        document.getElementById('selectionArea').style.display = 'none';
+        document.getElementById('printBtn').style.display = 'none';
+        return;
+      }
+
+      currentPartyResults = results;
+      
+      // Show selection area and populate order checkboxes
+      document.getElementById('selectionArea').style.display = 'block';
+      populateOrderCheckboxes(results);
+      
+      // Reset selection to "all"
+      document.querySelector('input[name="orderSelection"][value="all"]').checked = true;
+      toggleOrderSelection();
+      
+      // Display results
+      displayResults(results);
+    }
+
+    // Populate order checkboxes
+    function populateOrderCheckboxes(results) {
+      let checkboxHtml = "";
+      results.forEach((row, index) => {
+        // Create a description for each order
+        let description = `Order ${index + 1}`;
+        
+        // Try to get order number
+        const possibleOrderColumns = ["Order No", "OrderNo", "order_no", "Order Number", "OrderNumber", "ID", "id"];
+        let orderValue = null;
+        for (let col of possibleOrderColumns) {
+          if (row[col] && row[col].toString().trim() !== "") {
+            orderValue = row[col];
+            break;
+          }
+        }
+
+        // Try to get date for better identification
+        const possibleDateColumns = ["Date", "date", "DATE", "Order Date", "Transaction Date"];
+        let dateValue = null;
+        for (let col of possibleDateColumns) {
+          if (row[col]) {
+            dateValue = row[col];
+            break;
+          }
+        }
+
+        if (orderValue) {
+          description = `Order ${orderValue}`;
+        }
+
+        if (dateValue) {
+          // Format date if it's a number (Excel date)
+          if (typeof dateValue === "number" && dateValue > 1000) {
+            const excelDate = new Date((dateValue - 25569) * 86400 * 1000);
+            dateValue = excelDate.toLocaleDateString('en-GB');
+          }
+          description += ` - ${dateValue}`;
+        }
+        
+        checkboxHtml += `
+          <label class="order-checkbox">
+            <input type="checkbox" value="${index}"> 
+            ${description}
+          </label>
+        `;
+      });
+      document.getElementById('orderCheckboxes').innerHTML = checkboxHtml;
+    }
+
+    // Toggle order selection method
+    function toggleOrderSelection() {
+      const isSpecific = document.querySelector('input[name="orderSelection"][value="specific"]').checked;
+      document.getElementById('specificOrdersArea').style.display = isSpecific ? 'block' : 'none';
+      
+      if (!isSpecific) {
+        // If "all" is selected, apply immediately
+        applySelection();
+      }
+    }
+
+    // Apply selection and filter results
+    function applySelection() {
+      if (currentPartyResults.length === 0) return;
+      
+      const isSpecific = document.querySelector('input[name="orderSelection"][value="specific"]').checked;
+      let filteredResults = [];
+      
+      if (isSpecific) {
+        // Get selected orders from checkboxes only
+        const selectedCheckboxes = Array.from(document.querySelectorAll('#orderCheckboxes input[type="checkbox"]:checked'));
+        
+        // Filter by selected checkboxes
+        const selectedIndices = selectedCheckboxes.map(cb => parseInt(cb.value));
+        filteredResults = currentPartyResults.filter((row, index) => selectedIndices.includes(index));
+      } else {
+        // Include all orders
+        filteredResults = currentPartyResults;
+      }
+      
+      displayResults(filteredResults);
+    }
+
+    // Find column key with case-insensitive matching
+    function findColumnKey(row, targetColumnName) {
+      const keys = Object.keys(row);
+      return keys.find(key => key.toLowerCase().trim() === targetColumnName.toLowerCase()) || null;
+    }
+
+    // Display results in table
+    function displayResults(results) {
+      if (results.length === 0) {
+        document.getElementById('results').innerHTML = "No dye orders found matching your selection.";
+        document.getElementById('printBtn').style.display = 'none';
+        return;
+      }
+
+      // Build table - ensure we show ALL columns
+      const allColumns = Object.keys(results[0]);
+      
+      let html = `
+        <div class="print-company-header">Al-Hamd Dyeing - Dyes</div>
+        <div class="print-party-name">${currentParty}</div>
+        <h3 style="display: none;">Dye Orders for ${currentParty} (${results.length} orders)</h3>
+        <table><tr>`;
+      
+      // Display ALL column headers
+      allColumns.forEach(key => {
+        html += `<th>${key}</th>`;
+      });
+      html += "</tr>";
+
+      // Initialize totals for the 3 specific columns for Dyes
+      let totalPrice = 0, totalPaid = 0, totalBalance = 0;
+
+      // Display all data rows
+      results.forEach(row => {
+        html += "<tr>";
+        allColumns.forEach(key => {
+          let value = row[key];
+          
+          // Format dates properly (Excel dates come as numbers)
+          if (key.toLowerCase().includes('date') && typeof value === "number" && value > 1000) {
+            // Convert Excel date serial number to proper date
+            const excelDate = new Date((value - 25569) * 86400 * 1000);
+            value = excelDate.toLocaleDateString('en-GB'); // DD/MM/YYYY format
+          } else if (typeof value === "number" && !key.toLowerCase().includes('date')) {
+            value = value.toFixed(2);
+          }
+          
+          html += `<td>${value || ""}</td>`;
+        });
+        html += "</tr>";
+
+        // Calculate totals for the 3 specific columns for Dyes (case-insensitive)
+        const priceKey = findColumnKey(row, "price");
+        const paidKey = findColumnKey(row, "paid");
+        const balanceKey = findColumnKey(row, "balance");
+
+        totalPrice += Number(priceKey ? row[priceKey] : 0) || 0;
+        totalPaid += Number(paidKey ? row[paidKey] : 0) || 0;
+        totalBalance += Number(balanceKey ? row[balanceKey] : 0) || 0;
+      });
+
+      // Totals row - show totals for the 3 specific columns, empty for others
+      html += "<tr class='totals'>";
+      allColumns.forEach(key => {
+        const keyLower = key.toLowerCase().trim();
+        if (keyLower === "price") {
+          html += `<td>${totalPrice.toFixed(2)}</td>`;
+        } else if (keyLower === "paid") {
+          html += `<td>${totalPaid.toFixed(2)}</td>`;
+        } else if (keyLower === "balance") {
+          html += `<td>${totalBalance.toFixed(2)}</td>`;
+        } else {
+          html += "<td></td>";
+        }
+      });
+      html += "</tr>";
+
+      html += "</table>";
+
+      // Add balance summary using the totals we calculated
+      html += `
+        <div style="margin-top: 20px; padding: 15px; border: 2px solid #333; border-radius: 8px; background: #f0f8ff;">
+          <h3 style="margin-top: 0; color: #333;">Dye Orders Summary for ${currentParty}</h3>
+          <table style="width: auto; margin: 0;">
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">Total Price:</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd; background: #ffe6e6;">${totalPrice.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">Total Paid:</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd; background: #e6ffe6;">${totalPaid.toFixed(2)}</td>
+            </tr>
+            <tr class="totals">
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 2px solid #333;">Outstanding Balance:</td>
+              <td style="padding: 8px; text-align: right; border: 2px solid #333; background: ${totalBalance > 0 ? '#ffcccc' : '#ccffcc'}; font-weight: bold; font-size: 16px;">
+                ${totalBalance.toFixed(2)}
+              </td>
+            </tr>
+          </table>
+        </div>
+      `;
+
+      document.getElementById('results').innerHTML = html;
+      document.getElementById('printBtn').style.display = 'inline-block';
+    }
+
+    // Print results
+    function printResults() {
+      window.print();
+    }
+  </script>
+</body>
+
+</html>
+
+
+
+
