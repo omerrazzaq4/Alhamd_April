@@ -276,14 +276,14 @@
         const foundKey = keys.find(k => k.trim().toLowerCase() === col.toLowerCase());
         if (foundKey && row[foundKey] !== '' && row[foundKey] !== null && row[foundKey] !== undefined) {
           const num = parseFloat(row[foundKey]);
-          tiyaarValue = !isNaN(num) ? `${num} meters` : row[foundKey].toString().trim();
+          tiyaarValue = !isNaN(num) ? `${num.toFixed(1)} meters` : row[foundKey].toString().trim();
           break;
         }
       }
 
       // Combine Quality and Tiyaar/Meters
       if (qualityValue && tiyaarValue) {
-        return `${qualityValue} - ${tiyaarValue}`;
+        return `${qualityValue} | ${tiyaarValue}`;
       } else if (qualityValue) {
         return qualityValue;
       } else if (tiyaarValue) {
@@ -305,13 +305,14 @@
             
             const billNo = row['Bill Number'] || row['Bill Number'] || row.BillNo || row.billNo || '';
             const amount = parseFloat(row.Amount || row.amount || row.billing || row.Billing || row.AMOUNT || 0);
+            const billLabel = billNo ? `Bill ${billNo}` : 'Bill';
+            const detail = getQualityTiyaarDetail(row);
             
             if (amount > 0) {
               billsData.push({
                 party: party,
                 date: parseDate(row.Date || row.date || row.DATE),
-                description: billNo ? `Bill ${billNo}` : 'Bill',
-                detail: getQualityTiyaarDetail(row),
+                description: detail ? `${billLabel} | ${detail}` : billLabel,
                 amount: amount,
                 type: 'debit'
               });
@@ -545,7 +546,6 @@
         tableRows += `
           <tr>
             <td>${dateDisplay}</td>
-            <td>${trans.detail || ''}</td>
             <td>${trans.description}</td>
             <td class="debit-col">${debit > 0 ? debit.toFixed(2) : ''}</td>
             <td class="credit-col">${credit > 0 ? credit.toFixed(2) : ''}</td>
@@ -577,7 +577,6 @@
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Quality/Tiyaar</th>
                 <th>Description</th>
                 <th>Debit</th>
                 <th>Credit</th>
@@ -586,18 +585,18 @@
             </thead>
             <tbody>
               <tr class="opening-balance-row">
-                <td colspan="5">Opening Balance</td>
+                <td colspan="4">Opening Balance</td>
                 <td>0.00</td>
               </tr>
               ${tableRows}
               <tr class="totals">
-                <td colspan="3">Closing Balance</td>
+                <td colspan="2">Closing Balance</td>
                 <td class="debit-col"></td>
                 <td class="credit-col"></td>
                 <td class="${runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : ''}">${Math.abs(runningBalance).toFixed(2)}</td>
               </tr>
               <tr class="totals">
-                <td colspan="3"><strong>Total</strong></td>
+                <td colspan="2"><strong>Total</strong></td>
                 <td class="debit-col"><strong>${totalDebit.toFixed(2)}</strong></td>
                 <td class="credit-col"><strong>${totalCredit.toFixed(2)}</strong></td>
                 <td></td>
