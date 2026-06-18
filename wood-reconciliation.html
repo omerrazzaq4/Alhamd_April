@@ -294,9 +294,21 @@
             console.log(`Party: ${party}, Bill: ${billNo}, Vehicle: ${vehicleNumber}, Weight: ${weight}, Rate: ${rate}, Amount: ${amount}`);
             
             if (amount > 0) {
-              // Description contains only Weight and Rate
-              const description = `| Weight: ${weight || ''} | Rate: ${rate || ''} |`;
+              // Build base description from vehicle number or bill number
+              let description = '';
+              if (vehicleNumber) {
+                description = vehicleNumber;
+              } else if (billNo) {
+                description = `Bill ${billNo}`;
+              } else {
+                description = 'Wood Bill';
+              }
 
+              // Append Weight and Rate detail in a consistent format
+              if (weight !== '' || rate !== '') {
+                description += ` | Weight: ${weight !== '' ? weight : '-'} | Rate: ${rate !== '' ? rate : '-'} |`;
+              }
+              
               billsData.push({
                 party: party,
                 date: parseDate(row.Date || row.date || row.DATE),
@@ -598,6 +610,3 @@
   </script>
 </body>
 </html>
-
-
-
