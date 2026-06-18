@@ -249,6 +249,49 @@
       }
     }
 
+    function getQualityTiyaarDetail(row) {
+      // Find Quality column (try common variations)
+      const possibleQualityColumns = [
+        "Quality", "quality", "QUALITY", "Quality Name", "QualityName", "quality_name"
+      ];
+      const keys = Object.keys(row);
+
+      let qualityValue = '';
+      for (let col of possibleQualityColumns) {
+        const foundKey = keys.find(k => k.trim().toLowerCase() === col.toLowerCase());
+        if (foundKey && row[foundKey] && row[foundKey].toString().trim() !== '') {
+          qualityValue = row[foundKey].toString().trim();
+          break;
+        }
+      }
+
+      // Find Tiyaar/Meters column (try common variations)
+      const possibleTiyaarColumns = [
+        "tiyar/meters", "Tiyar/Meters", "Tiyaar/Meters", "tiyaar/meters",
+        "TIYAR/METERS", "Tiyar Meters", "tiyar meters"
+      ];
+
+      let tiyaarValue = '';
+      for (let col of possibleTiyaarColumns) {
+        const foundKey = keys.find(k => k.trim().toLowerCase() === col.toLowerCase());
+        if (foundKey && row[foundKey] !== '' && row[foundKey] !== null && row[foundKey] !== undefined) {
+          const num = parseFloat(row[foundKey]);
+          tiyaarValue = !isNaN(num) ? `${num} meters` : row[foundKey].toString().trim();
+          break;
+        }
+      }
+
+      // Combine Quality and Tiyaar/Meters
+      if (qualityValue && tiyaarValue) {
+        return `${qualityValue} - ${tiyaarValue}`;
+      } else if (qualityValue) {
+        return qualityValue;
+      } else if (tiyaarValue) {
+        return tiyaarValue;
+      }
+      return '';
+    }
+
     function processBillSheet(sheetName) {
       try {
         const worksheet = workbookData.Sheets[sheetName];
@@ -268,6 +311,7 @@
                 party: party,
                 date: parseDate(row.Date || row.date || row.DATE),
                 description: billNo ? `Bill ${billNo}` : 'Bill',
+                detail: getQualityTiyaarDetail(row),
                 amount: amount,
                 type: 'debit'
               });
@@ -501,6 +545,7 @@
         tableRows += `
           <tr>
             <td>${dateDisplay}</td>
+            <td>${trans.detail || ''}</td>
             <td>${trans.description}</td>
             <td class="debit-col">${debit > 0 ? debit.toFixed(2) : ''}</td>
             <td class="credit-col">${credit > 0 ? credit.toFixed(2) : ''}</td>
@@ -532,6 +577,7 @@
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Quality/Tiyaar</th>
                 <th>Description</th>
                 <th>Debit</th>
                 <th>Credit</th>
@@ -540,18 +586,18 @@
             </thead>
             <tbody>
               <tr class="opening-balance-row">
-                <td colspan="4">Opening Balance</td>
+                <td colspan="5">Opening Balance</td>
                 <td>0.00</td>
               </tr>
               ${tableRows}
               <tr class="totals">
-                <td colspan="2">Closing Balance</td>
+                <td colspan="3">Closing Balance</td>
                 <td class="debit-col"></td>
                 <td class="credit-col"></td>
                 <td class="${runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : ''}">${Math.abs(runningBalance).toFixed(2)}</td>
               </tr>
               <tr class="totals">
-                <td colspan="2"><strong>Total</strong></td>
+                <td colspan="3"><strong>Total</strong></td>
                 <td class="debit-col"><strong>${totalDebit.toFixed(2)}</strong></td>
                 <td class="credit-col"><strong>${totalCredit.toFixed(2)}</strong></td>
                 <td></td>
@@ -567,7 +613,3 @@
   </script>
 </body>
 </html>
-
-
-
-
