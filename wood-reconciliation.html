@@ -263,11 +263,11 @@
           if (party) {
             allParties.add(party);
             
-            // Check if this is a "Closing Balance CF" row
-            const vehicleNumber = row['Vehicle Number'] || row['Vehicle number'] || row['vehicle number'] || 
+            // Column C holds either a vehicle number OR the literal text "Closing Balance CF"
+            const vehicleNumberCol = row['Vehicle Number'] || row['Vehicle number'] || row['vehicle number'] || 
                                  row.VehicleNumber || row.vehicleNumber || '';
             
-            if (vehicleNumber && vehicleNumber.toString().toLowerCase().includes('closing balance')) {
+            if (vehicleNumberCol && vehicleNumberCol.toString().toLowerCase().includes('closing balance')) {
               // This is an opening balance row - get from "balance" column
               const balanceKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'balance');
               const amount = balanceKey ? parseFloat(row[balanceKey]) : 0;
@@ -279,10 +279,6 @@
               return; // Don't process this as a regular bill
             }
             
-            // Try multiple variations of Bill Number column
-            const billNo = row['Bill Number'] || row['Bill No'] || row['Bill no'] || 
-                          row.BillNo || row.billNo || row['bill number'] || '';
-            
             // Get weight and rate for description
             const weight = row['Weight'] || row['weight'] || row.WEIGHT || '';
             const rate = row['Rate'] || row['rate'] || row.RATE || '';
@@ -291,23 +287,11 @@
             const totalKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'total');
             const amount = totalKey ? parseFloat(row[totalKey]) : 0;
             
-            console.log(`Party: ${party}, Bill: ${billNo}, Vehicle: ${vehicleNumber}, Weight: ${weight}, Rate: ${rate}, Amount: ${amount}`);
+            console.log(`Party: ${party}, Weight: ${weight}, Rate: ${rate}, Amount: ${amount}`);
             
             if (amount > 0) {
-              // Build base description from vehicle number or bill number
-              let description = '';
-              if (vehicleNumber) {
-                description = vehicleNumber;
-              } else if (billNo) {
-                description = `Bill ${billNo}`;
-              } else {
-                description = 'Wood Bill';
-              }
-
-              // Append Weight and Rate detail in a consistent format
-              if (weight !== '' || rate !== '') {
-                description += ` | Weight: ${weight !== '' ? weight : '-'} | Rate: ${rate !== '' ? rate : '-'} |`;
-              }
+              // Description built purely from Weight and Rate (no bill/vehicle number exists)
+              const description = `Weight: ${weight !== '' ? weight : '-'} | Rate: ${rate !== '' ? rate : '-'}`;
               
               billsData.push({
                 party: party,
