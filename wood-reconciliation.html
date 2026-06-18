@@ -294,19 +294,9 @@
             console.log(`Party: ${party}, Bill: ${billNo}, Vehicle: ${vehicleNumber}, Weight: ${weight}, Rate: ${rate}, Amount: ${amount}`);
             
             if (amount > 0) {
-              // Build description with vehicle number, weight, and rate
-              let description = '';
-              if (vehicleNumber) description = vehicleNumber;
-              if (weight) description += (description ? ', ' : '') + `${weight} kg`;
-              if (rate) description += (description ? ' @ ' : '') + rate;
-              
-              // If no vehicle/weight/rate info, use bill number
-              if (!description && billNo) {
-                description = `Bill ${billNo}`;
-              } else if (!description) {
-                description = 'Wood Bill';
-              }
-              
+              // Description contains only Weight and Rate
+              const description = `| Weight: ${weight || ''} | Rate: ${rate || ''} |`;
+
               billsData.push({
                 party: party,
                 date: parseDate(row.Date || row.date || row.DATE),
@@ -608,8 +598,6 @@
   </script>
 </body>
 </html>
-
-
 
 
 
