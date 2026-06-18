@@ -279,12 +279,13 @@
               return; // Don't process this as a regular bill
             }
             
-            // Get weight and rate for description
-            const weight = row['Weight'] || row['weight'] || row.WEIGHT || '';
-            const rate = row['Rate'] || row['rate'] || row.RATE || '';
-            
-            // Use Total column for Wood sheet - try multiple variations
+            // Use same extraction pattern for all three columns
+            const weightKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'weight');
+            const rateKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'rate');
             const totalKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'total');
+
+            const weight = weightKey ? row[weightKey] : '';
+            const rate = rateKey ? row[rateKey] : '';
             const amount = totalKey ? parseFloat(row[totalKey]) : 0;
             
             console.log(`Party: ${party}, Weight: ${weight}, Rate: ${rate}, Amount: ${amount}`);
