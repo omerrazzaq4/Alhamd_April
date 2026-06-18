@@ -530,9 +530,9 @@
           <tr>
             <td>${formatDate(trans.date)}</td>
             <td>${trans.description}</td>
-            <td class="debit-col">${debit > 0 ? debit.toFixed(2) : ''}</td>
-            <td class="credit-col">${credit > 0 ? credit.toFixed(2) : ''}</td>
-            <td class="${balanceColor}">${Math.abs(runningBalance).toFixed(2)}</td>
+            <td class="debit-col">${debit > 0 ? Math.round(debit) : ''}</td>
+            <td class="credit-col">${credit > 0 ? Math.round(credit) : ''}</td>
+            <td class="${balanceColor}">${Math.round(Math.abs(runningBalance))}</td>
           </tr>
         `;
       });
@@ -569,19 +569,19 @@
             <tbody>
               <tr class="opening-balance-row">
                 <td colspan="4">Opening Balance</td>
-                <td>${Math.abs(openingBalance).toFixed(2)}</td>
+                <td>${Math.round(Math.abs(openingBalance))}</td>
               </tr>
               ${tableRows}
               <tr class="totals">
                 <td colspan="2">Closing Balance</td>
                 <td class="debit-col"></td>
                 <td class="credit-col"></td>
-                <td class="${runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : ''}">${Math.abs(runningBalance).toFixed(2)}</td>
+                <td class="${runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : ''}">${Math.round(Math.abs(runningBalance))}</td>
               </tr>
               <tr class="totals">
                 <td colspan="2"><strong>Total</strong></td>
-                <td class="debit-col"><strong>${totalDebit.toFixed(2)}</strong></td>
-                <td class="credit-col"><strong>${totalCredit.toFixed(2)}</strong></td>
+                <td class="debit-col"><strong>${Math.round(totalDebit)}</strong></td>
+                <td class="credit-col"><strong>${Math.round(totalCredit)}</strong></td>
                 <td></td>
               </tr>
             </tbody>
