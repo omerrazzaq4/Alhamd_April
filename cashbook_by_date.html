@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Al-Hamd Dyeing - Cashbook by Date</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: darkblue; }
+    button { margin: 5px; padding: 8px 12px; border-radius: 5px; border: 1px solid #ccc; cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    button.print-btn { background: #4CAF50; color: white; }
+    button.print-btn:hover { background: #45a049; }
+    button.date-btn.active { background: darkblue; color: white; border-color: darkblue; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; }
+    .totals { font-weight: bold; background: #e0f7fa; }
+    .selection-area {
+      margin: 15px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background: #f9f9f9;
+    }
+    input[type="date"], input[type="file"] {
+      padding: 5px;
+      margin: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    .sheet-selector {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: #f5f5f5;
+    }
+    .error-message {
+      color: red;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    .success-message {
+      color: green;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    .debit { color: #d32f2f; font-weight: bold; }
+    .credit { color: #388e3c; font-weight: bold; }
+    .date-buttons { max-height: 220px; overflow-y: auto; border: 1px solid #eee; padding: 8px; border-radius: 5px; }
+    .fallback-upload { margin: 10px 0; padding: 10px; border: 1px dashed #aaa; border-radius: 5px; background: #fffef5; }
+    @media print {
+      h1, h2, h3, button, .selection-area, #dateSection, #printBtn, .sheet-selector, #messages, .fallback-upload { display: none !important; }
+      body { margin: 0; font-size: 12px; }
+
+      @page {
+        margin: 0.5in;
+        size: A4;
+      }
+
+      .print-date-heading {
+        font-size: 24px;
+        font-weight: bold;
+        text-align: center;
+        margin: 20px 0;
+        color: #333;
+        border-bottom: 2px solid #333;
+        padding-bottom: 10px;
+        display: block !important;
+      }
+      .print-company-header {
+        font-size: 28px;
+        font-weight: bold;
+        text-align: center;
+        margin: 10px 0 20px 0;
+        color: #000;
+        display: block !important;
+      }
+      table { font-size: 11px; }
+      th, td { padding: 6px; }
+      * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Find Cashbook Entries by Date</h1>
+
+  <!-- Fallback manual upload, in case the auto-fetch of the Excel file fails (e.g. CORS / different filename) -->
+  <div class="fallback-upload">
+    <strong>If the file doesn't load automatically:</strong>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" onchange="handleFileUpload(event)">
+  </div>
+
+  <!-- Sheet Selector (hidden initially, only shown if "Cashbook" sheet isn't found automatically) -->
+  <div id="sheetSelector" class="sheet-selector" style="display: none;">
+    <h4>Select Sheet:</h4>
+    <select id="sheetDropdown" onchange="selectSheet()">
+      <option value="">-- Choose a sheet --</option>
+    </select>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages"></div>
+
+  <!-- Date Buttons -->
+  <div id="dateSection" style="display: none;">
+    <h3>Choose a Date:</h3>
+    <div id="dateButtons" class="date-buttons"></div>
+  </div>
+
+  <!-- Print Button -->
+  <button id="printBtn" class="print-btn" onclick="printResults()" style="display: none;">Print Results</button>
+
+  <!-- Results -->
+  <h2>Results:</h2>
+  <div id="results"></div>
+
+  <script>
+    let workbookData = null;
+    let cashbookData = [];
+    let dateColumn = null;
+    let currentDateISO = "";
+
+    // Show messages
+    function showMessage(text, type = 'info') {
+      const messagesDiv = document.getElementById('messages');
+      const className = type === 'error' ? 'error-message' : 'success-message';
+      messagesDiv.innerHTML = `<div class="${className}">${text}</div>`;
+    }
+
+    // Auto-load Excel file from directory
+    async function autoLoadExcel() {
+      try {
+        const response = await fetch("Factory_Khata_April.xlsx");
+        if (!response.ok) throw new Error("File not found in this folder");
+
+        const arrayBuffer = await response.arrayBuffer();
+        loadWorkbook(arrayBuffer);
+
+      } catch (err) {
+        showMessage("Could not auto-load the Excel file (" + err.message + "). Please use the file picker above to select it manually.", "error");
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", autoLoadExcel);
+
+    // Manual file upload fallback
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        loadWorkbook(e.target.result);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // Parse workbook and auto-select the "Cashbook" sheet if present
+    function loadWorkbook(arrayBuffer) {
+      workbookData = XLSX.read(arrayBuffer, { type: "array" });
+
+      const sheetNames = workbookData.SheetNames;
+      if (sheetNames.length === 0) {
+        showMessage("No sheets found in the Excel file.", "error");
+        return;
+      }
+
+      // Try to auto-select a sheet literally named "Cashbook" (case-insensitive)
+      const cashbookSheet = sheetNames.find(name => name.trim().toLowerCase() === "cashbook");
+
+      if (cashbookSheet) {
+        processSheet(cashbookSheet);
+      } else if (sheetNames.length === 1) {
+        processSheet(sheetNames[0]);
+      } else {
+        populateSheetSelector(sheetNames);
+      }
+    }
+
+    // Populate sheet selector dropdown
+    function populateSheetSelector(sheetNames) {
+      const dropdown = document.getElementById('sheetDropdown');
+      dropdown.innerHTML = '<option value="">-- Choose a sheet --</option>';
+
+      sheetNames.forEach(name => {
+        dropdown.innerHTML += `<option value="${name}">${name}</option>`;
+      });
+
+      document.getElementById('sheetSelector').style.display = 'block';
+      showMessage(`No sheet named "Cashbook" was found. Please select the correct sheet.`);
+    }
+
+    // Select and process a sheet
+    function selectSheet() {
+      const selectedSheet = document.getElementById('sheetDropdown').value;
+      if (selectedSheet) {
+        processSheet(selectedSheet);
+      }
+    }
+
+    // Process the selected sheet
+    function processSheet(sheetName) {
+      try {
+        const sheet = workbookData.Sheets[sheetName];
+        if (!sheet) {
+          showMessage(`Sheet "${sheetName}" not found.`, 'error');
+          return;
+        }
+
+        const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+        if (rawData.length === 0) {
+          showMessage("The selected sheet appears to be empty.", 'error');
+          return;
+        }
+
+        cashbookData = cleanTableData(rawData);
+
+        if (cashbookData.length === 0) {
+          showMessage("No valid table data found after cleaning.", 'error');
+          return;
+        }
+
+        // Find the Date column
+        const possibleDateColumns = ["Date", "date", "DATE", "Entry Date", "Transaction Date"];
+        const availableColumns = Object.keys(cashbookData[0] || {});
+
+        dateColumn = null;
+        for (let col of possibleDateColumns) {
+          const foundCol = availableColumns.find(c => c.trim().toLowerCase() === col.toLowerCase());
+          if (foundCol) { dateColumn = foundCol; break; }
+        }
+
+        if (!dateColumn) {
+          showMessage(`Could not find a Date column. Available columns: ${availableColumns.join(', ')}`, 'error');
+          return;
+        }
+
+        buildDateButtons();
+        document.getElementById('sheetSelector').style.display = 'none';
+        showMessage(`Successfully loaded ${cashbookData.length} records from sheet "${sheetName}".`);
+
+      } catch (error) {
+        showMessage("Error processing sheet: " + error.message, 'error');
+      }
+    }
+
+    // Clean table data - remove empty columns and pivot table artifacts
+    function cleanTableData(rawData) {
+      if (rawData.length === 0) return rawData;
+
+      const allColumns = Object.keys(rawData[0]);
+
+      const validColumns = allColumns.filter(col => {
+        const colName = col.toString().toLowerCase();
+        if (colName.includes('__empty') || colName.includes('empty')) return false;
+        if (colName.trim() === '' || /^\d+$/.test(colName)) return false;
+        if (colName.includes('sum of') || colName.includes('count of') ||
+            colName.includes('average of') || colName.includes('grand total') ||
+            colName.includes('total of') || colName.includes('subtotal')) return false;
+        return true;
+      });
+
+      const cleanedData = rawData.map(row => {
+        const cleanedRow = {};
+        validColumns.forEach(col => { cleanedRow[col] = row[col]; });
+        return cleanedRow;
+      }).filter(row => {
+        const values = Object.values(row);
+        const hasRealData = values.some(val =>
+          val !== "" && val !== null && val !== undefined &&
+          (!isNaN(val) && val !== 0) || (typeof val === 'string' && val.trim() !== "")
+        );
+        return hasRealData;
+      });
+
+      return cleanedData;
+    }
+
+    // Convert an Excel serial date number to a JS Date
+    function excelSerialToDate(serial) {
+      return new Date((serial - 25569) * 86400 * 1000);
+    }
+
+    // Extract a JS Date object from a row's date cell, handling both serial numbers and text dates (DD/MM/YYYY)
+    function getRowDate(row) {
+      let value = row[dateColumn];
+      if (typeof value === "number" && value > 1000) {
+        return excelSerialToDate(value);
+      }
+      if (typeof value === "string" && value.trim() !== "") {
+        const parts = value.trim().split(/[\/\-.]/);
+        if (parts.length === 3) {
+          let day = parseInt(parts[0], 10);
+          let month = parseInt(parts[1], 10) - 1;
+          let year = parseInt(parts[2], 10);
+          if (year < 100) year += 2000;
+          const d = new Date(year, month, day);
+          if (!isNaN(d.getTime())) return d;
+        }
+      }
+      return null;
+    }
+
+    function toISODate(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function toDisplayDate(d) {
+      return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+    }
+
+    // Build one button per unique date found in the sheet, sorted chronologically
+    function buildDateButtons() {
+      const uniqueDatesMap = new Map(); // iso -> display
+
+      cashbookData.forEach(row => {
+        const d = getRowDate(row);
+        if (d) {
+          const iso = toISODate(d);
+          if (!uniqueDatesMap.has(iso)) uniqueDatesMap.set(iso, toDisplayDate(d));
+        }
+      });
+
+      const sortedISO = [...uniqueDatesMap.keys()].sort();
+
+      if (sortedISO.length === 0) {
+        showMessage("No valid dates could be parsed from the Date column.", 'error');
+        return;
+      }
+
+      let buttonsHtml = "";
+      sortedISO.forEach(iso => {
+        buttonsHtml += `<button class="date-btn" id="datebtn-${iso}" onclick="searchByDate('${iso}')">${uniqueDatesMap.get(iso)}</button>`;
+      });
+
+      document.getElementById("dateButtons").innerHTML = buttonsHtml;
+      document.getElementById("dateSection").style.display = 'block';
+    }
+
+    function findColumnKey(row, targetColumnName) {
+      const keys = Object.keys(row);
+      return keys.find(key => key.toLowerCase().trim() === targetColumnName.toLowerCase()) || null;
+    }
+
+    // Search and display all entries for a chosen date
+    function searchByDate(iso) {
+      currentDateISO = iso;
+
+      // Highlight the active button
+      document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById('datebtn-' + iso);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const dayRows = [];
+      const priorRows = [];
+
+      cashbookData.forEach(row => {
+        const d = getRowDate(row);
+        if (!d) return;
+        const rowISO = toISODate(d);
+        if (rowISO === iso) {
+          dayRows.push(row);
+        } else if (rowISO < iso) {
+          priorRows.push(row);
+        }
+      });
+
+      if (dayRows.length === 0) {
+        document.getElementById('results').innerHTML = "No cashbook entries found for this date.";
+        document.getElementById('printBtn').style.display = 'none';
+        return;
+      }
+
+      // Opening balance = running balance (Credit - Debit) of everything strictly before this date
+      let openingBalance = 0;
+      priorRows.forEach(row => {
+        const debitKey = findColumnKey(row, "debit");
+        const creditKey = findColumnKey(row, "credit");
+        openingBalance += (Number(creditKey ? row[creditKey] : 0) || 0) - (Number(debitKey ? row[debitKey] : 0) || 0);
+      });
+
+      displayResults(dayRows, openingBalance, iso);
+    }
+
+    // Display results in table
+    function displayResults(results, openingBalance, iso) {
+      const allColumns = Object.keys(results[0]);
+      const displayDate = toDisplayDate(new Date(iso + 'T00:00:00'));
+
+      let html = `
+        <div class="print-company-header">Al-Hamd Dyeing - Cashbook</div>
+        <div class="print-date-heading">${displayDate}</div>
+        <h3 style="display: none;">Cashbook Entries for ${displayDate} (${results.length} entries)</h3>
+        <table><tr>`;
+
+      allColumns.forEach(key => {
+        html += `<th>${key}</th>`;
+      });
+      html += "</tr>";
+
+      let totalDebit = 0, totalCredit = 0;
+
+      results.forEach(row => {
+        html += "<tr>";
+        allColumns.forEach(key => {
+          let value = row[key];
+
+          if (key.toLowerCase().includes('date') && typeof value === "number" && value > 1000) {
+            const excelDate = excelSerialToDate(value);
+            value = excelDate.toLocaleDateString('en-GB');
+          } else if (typeof value === "number" && !key.toLowerCase().includes('date')) {
+            value = value.toFixed(2);
+          }
+
+          let cellClass = "";
+          const keyLower = key.toLowerCase().trim();
+          if (keyLower === "debit" && value > 0) {
+            cellClass = "class='debit'";
+          } else if (keyLower === "credit" && value > 0) {
+            cellClass = "class='credit'";
+          }
+
+          html += `<td ${cellClass}>${value || ""}</td>`;
+        });
+        html += "</tr>";
+
+        const debitKey = findColumnKey(row, "debit");
+        const creditKey = findColumnKey(row, "credit");
+
+        totalDebit += Number(debitKey ? row[debitKey] : 0) || 0;
+        totalCredit += Number(creditKey ? row[creditKey] : 0) || 0;
+      });
+
+      html += "<tr class='totals'>";
+      allColumns.forEach(key => {
+        const keyLower = key.toLowerCase().trim();
+        if (keyLower === "debit") {
+          html += `<td class='debit'>${totalDebit.toFixed(2)}</td>`;
+        } else if (keyLower === "credit") {
+          html += `<td class='credit'>${totalCredit.toFixed(2)}</td>`;
+        } else {
+          html += "<td></td>";
+        }
+      });
+      html += "</tr>";
+
+      html += "</table>";
+
+      const dayNet = totalCredit - totalDebit;
+      const closingBalance = openingBalance + dayNet;
+
+      const netLabel = dayNet >= 0 ? "Net Credit for the Day" : "Net Debit for the Day";
+      const netColor = dayNet >= 0 ? "#e6ffe6" : "#ffe6e6";
+      const netClass = dayNet >= 0 ? "credit" : "debit";
+
+      html += `
+        <div style="margin-top: 20px; padding: 15px; border: 2px solid #333; border-radius: 8px; background: #f0f8ff;">
+          <h3 style="margin-top: 0; color: #333;">Cashbook Summary for ${displayDate}</h3>
+          <table style="width: auto; margin: 0;">
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">Opening Balance (before this day):</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd;">${openingBalance.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">Total Debit (Day):</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd; background: #ffe6e6;" class="debit">${totalDebit.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">Total Credit (Day):</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd; background: #e6ffe6;" class="credit">${totalCredit.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 1px solid #ddd;">${netLabel}:</td>
+              <td style="padding: 8px; text-align: right; border: 1px solid #ddd; background: ${netColor};" class="${netClass}">${Math.abs(dayNet).toFixed(2)}</td>
+            </tr>
+            <tr class="totals">
+              <td style="padding: 8px; font-weight: bold; text-align: right; border: 2px solid #333;">Total Balance (as of ${displayDate}):</td>
+              <td style="padding: 8px; text-align: right; border: 2px solid #333; background: #fff3cd; font-weight: bold; font-size: 16px;">
+                ${closingBalance.toFixed(2)}
+              </td>
+            </tr>
+          </table>
+        </div>
+      `;
+
+      document.getElementById('results').innerHTML = html;
+      document.getElementById('printBtn').style.display = 'inline-block';
+    }
+
+    // Print results
+    function printResults() {
+      window.print();
+    }
+  </script>
+</body>
+</html>
