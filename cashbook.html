@@ -218,7 +218,12 @@
           return;
         }
 
-        if (sheetNames.length === 1) {
+        // Prefer the "cashbook" sheet (case-insensitive, ignores extra spaces)
+        const cashbookSheet = sheetNames.find(n => n.trim().toLowerCase() === "cashbook");
+
+        if (cashbookSheet) {
+          processSheet(cashbookSheet);
+        } else if (sheetNames.length === 1) {
           processSheet(sheetNames[0]);
         } else {
           populateSheetSelector(sheetNames);
