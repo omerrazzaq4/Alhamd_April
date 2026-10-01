@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Party Ledger Reconciliation detailed - Al-Hamd Dyeing</title>
+  <title>Party Ledger Reconciliation - Al-Hamd Dyeing</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: white; }
@@ -45,7 +45,7 @@
     /* Description cell */
     td.desc { text-align: left; }
     .d-small {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: normal;
       color: #444;
       display: flex;
@@ -55,7 +55,7 @@
     }
     .d-small span + span::before { content: "| "; color: #999; }
     .d-key {
-      font-size: 13px;
+      font-size: 15px;
       font-weight: bold;
       color: #000;
       display: flex;
@@ -216,7 +216,7 @@
       const small = [];
       if (billNo !== '')   small.push(`Bill No: ${esc(billNo)}`);
       if (quality !== '')  small.push(`Quality: ${esc(quality.toString().trim())}`);
-      if (shipment !== '') small.push(`Shipment: ${esc(fmt(shipment, 0))}`);
+      if (shipment !== '') small.push(`Lot#: ${esc(fmt(shipment, 0))}`);
       if (kora !== '')     small.push(`Kora: ${esc(fmt(kora))} m`);
       if (gaz !== '')      small.push(`Tiyaar: ${esc(fmt(gaz))} gaz`);
 
