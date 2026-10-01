@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Party Ledger Reconciliation detailed - Al-Hamd Dyeing</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: white; }
+    h1 { color: darkblue; }
+    button { margin: 5px; padding: 8px 12px; border-radius: 5px; border: 1px solid #ccc; cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    button.print-btn { background: #4CAF50; color: white; }
+    button.print-btn:hover { background: #45a049; }
+
+    .file-section { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ddd; }
+    .file-section h3 { margin-top: 0; color: #333; }
+    .file-status { margin-top: 10px; font-weight: bold; }
+    .success { color: green; }
+    .error { color: red; }
+
+    #partySection { margin: 20px 0; }
+    #partyButtons button { margin: 5px; }
+
+    .ledger-container { margin-top: 20px; }
+    .ledger-header { text-align: center; border: 2px solid #333; padding: 20px; margin-bottom: 20px; background: #f9e6e6; border-radius: 5px; }
+    .ledger-header h2 { margin: 0 0 15px 0; font-size: 24px; color: #8b4654; }
+    .company-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; max-width: 600px; margin: 0 auto; }
+    .info-row { display: flex; gap: 10px; }
+    .info-label { font-weight: bold; color: #8b4654; min-width: 120px; }
+
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; border: 2px solid #333; table-layout: fixed; }
+    th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; overflow-wrap: anywhere; }
+    th { background-color: #f9e6e6; font-weight: bold; color: #8b4654; }
+    .opening-balance-row, .totals { font-weight: bold; background: #f9e6e6; }
+    .debit-col { color: #d32f2f; }
+    .credit-col { color: #388e3c; }
+
+    /* Column widths: description gets the most room */
+    col.c-date { width: 9%; }
+    col.c-desc { width: 49%; }
+    col.c-debit { width: 13%; }
+    col.c-credit { width: 13%; }
+    col.c-bal { width: 16%; }
+
+    /* Description cell */
+    td.desc { text-align: left; }
+    .d-small {
+      font-size: 10px;
+      font-weight: normal;
+      color: #444;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 6px;
+      line-height: 1.5;
+    }
+    .d-small span + span::before { content: "| "; color: #999; }
+    .d-key {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 14px;
+      margin-top: 2px;
+    }
+
+    @media print {
+      body { margin: 0; }
+      h1, button, .file-section, #partySection { display: none !important; }
+      @page { margin: 0.5in; size: A4; }
+      * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Party Ledger Reconciliation</h1>
+
+  <div class="file-section">
+    <h3>Step 1: Load Bills/Ledger File</h3>
+    <p>This file should be automatically loaded: Factory_Khata_April.xlsx</p>
+    <div id="billsStatus" class="file-status"></div>
+  </div>
+
+  <div class="file-section">
+    <h3>Step 2: Load Cashbook</h3>
+    <p>The "Cashbook" sheet is loaded automatically. You can pick a different sheet if needed.</p>
+    <div id="cashbookSheetSelector" style="display: none;">
+      <label><strong>Cashbook Sheet: </strong></label>
+      <select id="cashbookSheet" onchange="loadCashbookSheet()">
+        <option value="">-- Choose sheet --</option>
+      </select>
+    </div>
+    <div id="cashbookStatus" class="file-status"></div>
+  </div>
+
+  <div id="partySection" style="display: none;">
+    <h3>Step 3: Select Party to View Ledger</h3>
+    <div id="partyButtons"></div>
+  </div>
+
+  <button id="printBtn" class="print-btn" onclick="printLedger()" style="display: none;">Print Ledger</button>
+
+  <div id="results"></div>
+
+  <script>
+    const EXCEL_FILE = "Factory_Khata_April.xlsx";
+    const OPENING_LABEL = 'Opening Balance (Previous Month Payment)';
+
+    let workbookData = null;
+    let billsData = [];
+    let cashbookData = [];
+    let cashflowData = {};
+    let allParties = new Set();
+    let currentPartyName = null;
+
+    window.addEventListener("DOMContentLoaded", autoLoadExcel);
+
+    // ---------- Helpers ----------
+    function esc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function norm(s) { return s.toString().trim().toLowerCase().replace(/\s+/g, ' '); }
+
+    // Get a value from a row using a test on the normalized column name
+    function getField(row, test) {
+      const key = Object.keys(row).find(k => test(norm(k)));
+      return key === undefined ? '' : row[key];
+    }
+
+    function toNum(v) {
+      if (typeof v === 'number') return v;
+      if (v === null || v === undefined) return NaN;
+      return parseFloat(v.toString().replace(/,/g, ''));
+    }
+
+    // Format a number nicely (thousands separators); fall back to raw text
+    function fmt(v, maxDec = 2, minDec = 0) {
+      if (v === '' || v === null || v === undefined) return '';
+      const n = toNum(v);
+      if (isNaN(n)) return v.toString().trim();
+      return n.toLocaleString('en-US', { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
+    }
+
+    // ---------- Load workbook ----------
+    async function autoLoadExcel() {
+      try {
+        const response = await fetch(EXCEL_FILE);
+        if (!response.ok) throw new Error("File not found");
+
+        const arrayBuffer = await response.arrayBuffer();
+        workbookData = XLSX.read(arrayBuffer, { type: "array" });
+
+        const ledgerSheet = workbookData.SheetNames.find(name => name.toLowerCase().trim() === 'ledger');
+        if (ledgerSheet) {
+          processBillSheet(ledgerSheet);
+        } else {
+          console.log('No Ledger sheet found. Available sheets:', workbookData.SheetNames);
+        }
+
+        document.getElementById('billsStatus').innerHTML =
+          `<span class="success">✓ Loaded ${billsData.length} bills from Ledger sheet</span>`;
+
+        loadCashflowData();
+        populateCashbookSelector();
+      } catch (err) {
+        document.getElementById('billsStatus').innerHTML = `<span class="error">✗ Error loading file: ${esc(err.message)}</span>`;
+      }
+    }
+
+    function loadCashflowData() {
+      try {
+        const cashflowSheetName = workbookData.SheetNames.find(name => norm(name).includes('cashflow') || norm(name) === 'cash flow');
+        if (!cashflowSheetName) return;
+
+        const rawData = XLSX.utils.sheet_to_json(workbookData.Sheets[cashflowSheetName], { defval: "" });
+
+        rawData.forEach(row => {
+          const party = (
+            row['Party Names'] || row['Party Name'] || row['PartyName'] ||
+            row['Party'] || row['party'] || row['PARTY'] || row['Name'] || row['name']
+          );
+
+          if (party && party.toString().trim() !== '') {
+            const partyUpper = party.toString().trim().toUpperCase();
+            const amount = toNum(
+              row['Credit'] || row['credit'] || row['CREDIT'] ||
+              row['Amount'] || row['amount'] || row['AMOUNT'] || 0
+            );
+            if (amount > 0 && !isNaN(amount)) cashflowData[partyUpper] = amount;
+          }
+        });
+
+        const count = Object.keys(cashflowData).length;
+        if (count > 0) {
+          document.getElementById('billsStatus').innerHTML +=
+            `<br><span class="success">✓ Loaded opening balances for ${count} parties from Cashflow sheet</span>`;
+        }
+      } catch (err) {
+        console.error('Error loading cashflow data:', err);
+      }
+    }
+
+    // ---------- Bill description ----------
+    // Small/normal: bill no, quality, shipment, kora, tiyaar gaz
+    // Larger/bold:  tiyar/meters, rate per meter
+    function buildBillDescription(row) {
+      const billNo   = getField(row, n => n === 'bill number' || n === 'bill no' || n === 'billno');
+      const quality  = getField(row, n => n === 'quality' || n === 'quality name');
+      const shipment = getField(row, n => n.startsWith('shipment'));
+      const kora     = getField(row, n => n.startsWith('kora'));
+      const gaz      = getField(row, n => /^tiya+r/.test(n) && n.includes('gaz'));
+      const meters   = getField(row, n => /^tiya+r/.test(n) && /met(er|re)/.test(n));
+      const rate     = getField(row, n => n === 'total billing');
+
+      const small = [];
+      if (billNo !== '')   small.push(`Bill No: ${esc(billNo)}`);
+      if (quality !== '')  small.push(`Quality: ${esc(quality.toString().trim())}`);
+      if (shipment !== '') small.push(`Shipment: ${esc(fmt(shipment, 0))}`);
+      if (kora !== '')     small.push(`Kora: ${esc(fmt(kora))} m`);
+      if (gaz !== '')      small.push(`Tiyaar: ${esc(fmt(gaz))} gaz`);
+
+      const key = [];
+      if (meters !== '')   key.push(`Tiyar: ${esc(fmt(meters, 1, 1))} m`);
+      if (rate !== '')     key.push(`Rate: ${esc(fmt(rate))}/m`);
+
+      let html = '';
+      if (small.length) html += `<div class="d-small">${small.map(s => `<span>${s}</span>`).join('')}</div>`;
+      if (key.length)   html += `<div class="d-key">${key.map(s => `<span>${s}</span>`).join('')}</div>`;
+      return html || (billNo !== '' ? `Bill ${esc(billNo)}` : 'Bill');
+    }
+
+    function processBillSheet(sheetName) {
+      try {
+        const rawData = XLSX.utils.sheet_to_json(workbookData.Sheets[sheetName], { defval: "" });
+        const cleanedData = cleanTableData(rawData);
+
+        cleanedData.forEach(row => {
+          const party = findPartyName(row);
+          if (party) {
+            allParties.add(party);
+
+            // "billing" column = bill amount (Total Billing is the rate per meter)
+            const amount = toNum(getField(row, n => n === 'amount' || n === 'billing'));
+
+            if (amount > 0) {
+              billsData.push({
+                party: party,
+                date: parseDate(getField(row, n => n === 'date')),
+                html: buildBillDescription(row),
+                amount: amount,
+                type: 'debit'
+              });
+            }
+          }
+        });
+      } catch (err) {
+        console.log(`Error processing sheet ${sheetName}:`, err);
+      }
+    }
+
+    // ---------- Cashbook ----------
+    function populateCashbookSelector() {
+      const selector = document.getElementById('cashbookSheet');
+      selector.innerHTML = '<option value="">-- Choose sheet --</option>';
+      workbookData.SheetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        selector.appendChild(opt);
+      });
+      document.getElementById('cashbookSheetSelector').style.display = 'block';
+
+      // Prefer the exact "cashbook" sheet, then anything similar
+      const cashbookSheet =
+        workbookData.SheetNames.find(n => norm(n) === 'cashbook') ||
+        workbookData.SheetNames.find(n => norm(n).includes('cashbook')) ||
+        workbookData.SheetNames.find(n => norm(n).includes('payment'));
+
+      if (cashbookSheet) {
+        selector.value = cashbookSheet;
+        loadCashbookSheet();
+      }
+    }
+
+    function loadCashbookSheet() {
+      const sheetName = document.getElementById('cashbookSheet').value;
+      if (!sheetName) return;
+
+      try {
+        const rawData = XLSX.utils.sheet_to_json(workbookData.Sheets[sheetName], { defval: "" });
+        const cleanedData = cleanTableData(rawData);
+
+        cashbookData = [];
+        cleanedData.forEach(row => {
+          const party = findPartyName(row);
+          if (party) {
+            allParties.add(party);
+
+            const credit = toNum(getField(row, n => n === 'credit'));
+            if (credit > 0) {
+              const desc = getField(row, n => n === 'description' || n === 'particulars') || 'Payment';
+              cashbookData.push({
+                party: party,
+                date: parseDate(getField(row, n => n === 'date')),
+                html: esc(desc),
+                amount: credit,
+                type: 'credit'
+              });
+            }
+          }
+        });
+
+        document.getElementById('cashbookStatus').innerHTML =
+          `<span class="success">✓ Loaded ${cashbookData.length} payments from ${esc(sheetName)}</span>`;
+        updatePartyList();
+      } catch (err) {
+        document.getElementById('cashbookStatus').innerHTML = `<span class="error">✗ Error loading cashbook: ${esc(err.message)}</span>`;
+      }
+    }
+
+    function cleanTableData(rawData) {
+      if (rawData.length === 0) return rawData;
+
+      const allColumns = Object.keys(rawData[0]);
+      const validColumns = allColumns.filter(col => {
+        const colName = col.toString().toLowerCase();
+        return !colName.includes('__empty') && !colName.includes('empty') &&
+               colName.trim() !== '' && !/^\d+$/.test(colName);
+      });
+
+      return rawData.map(row => {
+        const cleanedRow = {};
+        validColumns.forEach(col => { cleanedRow[col] = row[col]; });
+        return cleanedRow;
+      }).filter(row => Object.values(row).some(val => val !== "" && val !== null && val !== undefined));
+    }
+
+    function findPartyName(row) {
+      const possibleColumns = [
+        "Party Name", "PartyName", "party_name", "Party", "Customer", "Name"
+      ];
+      const keys = Object.keys(row);
+      for (let col of possibleColumns) {
+        const foundKey = keys.find(k => k.trim().toLowerCase() === col.toLowerCase());
+        if (foundKey && row[foundKey]) {
+          const value = row[foundKey].toString().trim();
+          if (value !== "") return value.toUpperCase();
+        }
+      }
+      return null;
+    }
+
+    function parseDate(dateStr) {
+      if (!dateStr) return null;
+      if (typeof dateStr === 'number' && dateStr > 1000) {
+        return new Date((dateStr - 25569) * 86400 * 1000);
+      }
+      let date = new Date(dateStr);
+      if (!isNaN(date.getTime())) return date;
+
+      const parts = dateStr.toString().split(/[-\/]/);
+      if (parts.length === 3) {
+        date = new Date(parts[2], parts[1] - 1, parts[0]);
+        if (!isNaN(date.getTime())) return date;
+      }
+      return null;
+    }
+
+    function formatDate(date) {
+      if (!date || isNaN(date.getTime())) return '';
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      return `${day}/${month}/${date.getFullYear()}`;
+    }
+
+    function updatePartyList() {
+      if (allParties.size === 0) return;
+      const container = document.getElementById('partyButtons');
+      container.innerHTML = '';
+      Array.from(allParties).sort().forEach(party => {
+        const btn = document.createElement('button');
+        btn.textContent = party;
+        btn.addEventListener('click', () => showLedger(party));
+        container.appendChild(btn);
+      });
+      document.getElementById('partySection').style.display = 'block';
+    }
+
+    // ---------- Printing ----------
+    window.addEventListener('beforeprint', () => {
+      if (currentPartyName) document.title = `${currentPartyName} - Ledger`;
+    });
+    window.addEventListener('afterprint', () => {
+      document.title = 'Party Ledger Reconciliation - Al-Hamd Dyeing';
+    });
+
+    function printLedger() {
+      if (currentPartyName) document.title = `${currentPartyName} - Ledger`;
+      setTimeout(() => window.print(), 50);
+    }
+
+    // ---------- Ledger ----------
+    function showLedger(partyName) {
+      currentPartyName = partyName;
+
+      const bills = billsData.filter(b => b.party === partyName);
+      const payments = cashbookData.filter(p => p.party === partyName);
+
+      const openingBalanceEntry = cashflowData[partyName] ? {
+        party: partyName,
+        date: new Date(0),
+        isOpening: true,
+        html: OPENING_LABEL,
+        amount: cashflowData[partyName],
+        type: 'credit'
+      } : null;
+
+      const allTransactions = openingBalanceEntry
+        ? [openingBalanceEntry, ...bills, ...payments]
+        : [...bills, ...payments];
+
+      allTransactions.sort((a, b) => {
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date - b.date;
+      });
+
+      if (allTransactions.length === 0) {
+        document.getElementById('results').innerHTML = '<p>No transactions found for this party.</p>';
+        document.getElementById('printBtn').style.display = 'none';
+        return;
+      }
+
+      let runningBalance = 0, totalDebit = 0, totalCredit = 0;
+      let tableRows = '';
+
+      allTransactions.forEach(trans => {
+        const debit = trans.type === 'debit' ? trans.amount : 0;
+        const credit = trans.type === 'credit' ? trans.amount : 0;
+
+        runningBalance += debit - credit;
+        totalDebit += debit;
+        totalCredit += credit;
+
+        const balanceColor = runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : '';
+        const dateDisplay = trans.isOpening ? 'Opening' : formatDate(trans.date);
+
+        tableRows += `
+          <tr>
+            <td>${dateDisplay}</td>
+            <td class="desc">${trans.html}</td>
+            <td class="debit-col">${debit > 0 ? debit.toFixed(2) : ''}</td>
+            <td class="credit-col">${credit > 0 ? credit.toFixed(2) : ''}</td>
+            <td class="${balanceColor}">${Math.abs(runningBalance).toFixed(2)}</td>
+          </tr>`;
+      });
+
+      const closingColor = runningBalance > 0 ? 'debit-col' : runningBalance < 0 ? 'credit-col' : '';
+
+      document.getElementById('results').innerHTML = `
+        <div class="ledger-container">
+          <div class="ledger-header">
+            <h2>Ledger</h2>
+            <div class="company-info">
+              <div class="info-row"><span class="info-label">Company Name:</span><span>Al-Hamd Dyeing</span></div>
+              <div class="info-row"><span class="info-label">To:</span><span>${esc(partyName)}</span></div>
+            </div>
+          </div>
+
+          <table>
+            <colgroup>
+              <col class="c-date"><col class="c-desc"><col class="c-debit"><col class="c-credit"><col class="c-bal">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Closing Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="opening-balance-row">
+                <td colspan="4">Opening Balance</td>
+                <td>0.00</td>
+              </tr>
+              ${tableRows}
+              <tr class="totals">
+                <td colspan="2">Closing Balance</td>
+                <td></td><td></td>
+                <td class="${closingColor}">${Math.abs(runningBalance).toFixed(2)}</td>
+              </tr>
+              <tr class="totals">
+                <td colspan="2">Total</td>
+                <td class="debit-col">${totalDebit.toFixed(2)}</td>
+                <td class="credit-col">${totalCredit.toFixed(2)}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>`;
+
+      document.getElementById('printBtn').style.display = 'inline-block';
+    }
+  </script>
+</body>
+</html>
